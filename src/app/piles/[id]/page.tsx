@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { toRow } from "@/lib/queries";
+import { auditValue, fieldLabel, type ChangeSet } from "@/lib/audit";
 import { BAND_LABEL } from "@/lib/concrete";
 import { DataRow, OverbreakChip, Panel, StatusChip } from "@/components/ui";
 import {
@@ -28,7 +29,8 @@ export default async function PileDetailPage({
 }) {
   const { id } = await params;
   const { saved } = await searchParams;
-  const site = await getSite();
+  const access = await requireAccess();
+  const site = access.site;
 
   const pile = await prisma.pile.findFirst({
     where: { id, siteId: site.id },
@@ -43,6 +45,16 @@ export default async function PileDetailPage({
     },
   });
   if (!pile) notFound();
+
+  const history = await prisma.auditEntry.findMany({
+    where: {
+      siteId: site.id,
+      entity: { in: ["PileLog", "Pile"] },
+      entityId: pile.id,
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
 
   const row = toRow(pile, {
     amberPct: site.overbreakAmberPct,
@@ -71,9 +83,11 @@ export default async function PileDetailPage({
           </p>
         </div>
         <div className="no-print flex gap-2">
-          <Link href={`/piles/${pile.id}/edit`} className="btn-secondary">
-            {log ? "Edit log" : "Add log"}
-          </Link>
+          {access.can("recordWork") ? (
+            <Link href={`/piles/${pile.id}/edit`} className="btn-secondary">
+              {log ? "Edit log" : "Add log"}
+            </Link>
+          ) : null}
           {log ? (
             <a
               href={`/api/piles/${pile.id}/pdf`}
@@ -93,9 +107,11 @@ export default async function PileDetailPage({
           <p className="mt-1 text-sm text-slate-500">
             This pile is on the schedule but nothing has been logged against it.
           </p>
-          <Link href={`/piles/${pile.id}/edit`} className="btn-primary mt-4">
-            Fill in the log
-          </Link>
+          {access.can("recordWork") ? (
+            <Link href={`/piles/${pile.id}/edit`} className="btn-primary mt-4">
+              Fill in the log
+            </Link>
+          ) : null}
         </div>
       ) : (
         <>
@@ -246,6 +262,62 @@ export default async function PileDetailPage({
               </div>
             </section>
           ) : null}
+
+          <section className="card p-4">
+            <h2 className="section-title">History</h2>
+            {history.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">
+                Nothing recorded against this pile yet.
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-3">
+                {history.map((h) => {
+                  const changes = (h.changes ?? null) as ChangeSet | null;
+                  const fields = changes ? Object.entries(changes) : [];
+                  return (
+                    <li key={h.id} className="border-l-2 border-slate-200 pl-3">
+                      <p className="text-sm">
+                        <span className="font-medium">{h.actorName}</span>{" "}
+                        <span className="text-slate-500">
+                          {h.action === "CREATE"
+                            ? "created the record"
+                            : h.action === "DELETE"
+                              ? "deleted the record"
+                              : "updated the record"}{" "}
+                          · {h.createdAt.toISOString().slice(0, 16).replace("T", " ")}
+                        </span>
+                      </p>
+                      {h.reason ? (
+                        <p className="text-sm italic text-slate-600">{h.reason}</p>
+                      ) : null}
+                      {fields.length > 0 ? (
+                        <ul className="mt-1 space-y-0.5 text-xs">
+                          {fields.slice(0, 12).map(([field, change]) => (
+                            <li key={field} className="flex flex-wrap gap-1.5">
+                              <span className="text-slate-500">{fieldLabel(field)}:</span>
+                              <span className="text-red-700 line-through">
+                                {auditValue(change.from)}
+                              </span>
+                              <span className="text-slate-400">→</span>
+                              <span className="font-medium text-emerald-800">
+                                {auditValue(change.to)}
+                              </span>
+                            </li>
+                          ))}
+                          {fields.length > 12 ? (
+                            <li className="text-slate-400">
+                              and {fields.length - 12} more field
+                              {fields.length - 12 === 1 ? "" : "s"}
+                            </li>
+                          ) : null}
+                        </ul>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
 
           <p className="text-sm text-slate-500">
             On the{" "}

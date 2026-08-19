@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Prisma, PileStatus } from "@prisma/client";
 
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { prisma } from "@/lib/db";
 import { getPileRows, totalise } from "@/lib/queries";
 import { OverbreakChip, StatusChip, EmptyState } from "@/components/ui";
@@ -16,7 +16,7 @@ export default async function PileRegisterPage({
   searchParams: Promise<{ status?: string; rig?: string; q?: string; flagged?: string }>;
 }) {
   const sp = await searchParams;
-  const site = await getSite();
+  const { site } = await requireAccess();
   const thresholds = {
     amberPct: site.overbreakAmberPct,
     redPct: site.overbreakRedPct,

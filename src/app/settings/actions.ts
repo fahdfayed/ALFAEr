@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/db";
-import { getSite, getSiteId } from "@/lib/site";
+import { requireActionAccess, NotPermittedError } from "@/lib/auth/access";
+import { diff, recordAudit } from "@/lib/audit";
 import { parseSchedule, toPileCreate } from "@/lib/scheduleImport";
 import { optFloat, optString, reqString, type ActionState } from "@/lib/parse";
 
@@ -11,7 +12,15 @@ export async function saveSite(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const site = await getSite();
+  let access;
+  try {
+    access = await requireActionAccess("manageProject");
+  } catch (err) {
+    if (err instanceof NotPermittedError) return { ok: false, error: err.message };
+    throw err;
+  }
+  const site = access.site;
+
   try {
     const shiftHours = optFloat(formData.get("shiftHours")) ?? 10;
     if (shiftHours <= 0 || shiftHours > 24) {
@@ -25,19 +34,28 @@ export async function saveSite(
       return { ok: false, error: "The red threshold must be above the amber threshold." };
     }
 
-    await prisma.site.update({
-      where: { id: site.id },
-      data: {
-        name: reqString(formData.get("name"), "Site name"),
-        clientName: optString(formData.get("clientName")),
-        contractRef: optString(formData.get("contractRef")),
-        location: optString(formData.get("location")),
-        shiftHours: shiftHours,
-        overbreakAmberPct: amber,
-        overbreakRedPct: red,
-        concreteRatePerM3: optFloat(formData.get("concreteRatePerM3")),
-        currency: optString(formData.get("currency")) ?? "AED",
-      },
+    const data = {
+      name: reqString(formData.get("name"), "Site name"),
+      clientName: optString(formData.get("clientName")),
+      contractRef: optString(formData.get("contractRef")),
+      location: optString(formData.get("location")),
+      shiftHours: shiftHours,
+      overbreakAmberPct: amber,
+      overbreakRedPct: red,
+      concreteRatePerM3: optFloat(formData.get("concreteRatePerM3")),
+      currency: optString(formData.get("currency")) ?? "AED",
+    };
+
+    await prisma.site.update({ where: { id: site.id }, data });
+    await recordAudit({
+      siteId: site.id,
+      actorId: access.user.id,
+      actorName: access.user.name,
+      action: "UPDATE",
+      entity: "Site",
+      entityId: site.id,
+      entityLabel: data.name,
+      changes: diff(site as unknown as Record<string, unknown>, data),
     });
   } catch (err) {
     console.error("saveSite failed", err);
@@ -49,15 +67,31 @@ export async function saveSite(
 }
 
 export async function addRig(_prev: ActionState, formData: FormData): Promise<ActionState> {
-  const siteId = await getSiteId();
+  let access;
+  try {
+    access = await requireActionAccess("manageProject");
+  } catch (err) {
+    if (err instanceof NotPermittedError) return { ok: false, error: err.message };
+    throw err;
+  }
+  const siteId = access.site.id;
   const name = optString(formData.get("name"));
   if (!name) return { ok: false, error: "Rig name is required." };
 
   const existing = await prisma.rig.findUnique({ where: { siteId_name: { siteId, name } } });
   if (existing) return { ok: false, error: `Rig "${name}" already exists.` };
 
-  await prisma.rig.create({
+  const rig = await prisma.rig.create({
     data: { siteId, name, make: optString(formData.get("make")) },
+  });
+  await recordAudit({
+    siteId,
+    actorId: access.user.id,
+    actorName: access.user.name,
+    action: "CREATE",
+    entity: "Rig",
+    entityId: rig.id,
+    entityLabel: name,
   });
   revalidatePath("/settings");
   return { ok: true, saved: true };
@@ -67,7 +101,14 @@ export async function addDriller(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const siteId = await getSiteId();
+  let access;
+  try {
+    access = await requireActionAccess("manageProject");
+  } catch (err) {
+    if (err instanceof NotPermittedError) return { ok: false, error: err.message };
+    throw err;
+  }
+  const siteId = access.site.id;
   const name = optString(formData.get("name"));
   if (!name) return { ok: false, error: "Driller name is required." };
 
@@ -76,7 +117,16 @@ export async function addDriller(
   });
   if (existing) return { ok: false, error: `"${name}" is already on the list.` };
 
-  await prisma.driller.create({ data: { siteId, name } });
+  const driller = await prisma.driller.create({ data: { siteId, name } });
+  await recordAudit({
+    siteId,
+    actorId: access.user.id,
+    actorName: access.user.name,
+    action: "CREATE",
+    entity: "Driller",
+    entityId: driller.id,
+    entityLabel: name,
+  });
   revalidatePath("/settings");
   return { ok: true, saved: true };
 }
@@ -97,7 +147,14 @@ export async function importSchedule(
   _prev: ImportState,
   formData: FormData,
 ): Promise<ImportState> {
-  const siteId = await getSiteId();
+  let access;
+  try {
+    access = await requireActionAccess("manageProject");
+  } catch (err) {
+    if (err instanceof NotPermittedError) return { ok: false, error: err.message };
+    throw err;
+  }
+  const siteId = access.site.id;
   const file = formData.get("file");
 
   if (!(file instanceof File) || file.size === 0) {
@@ -152,6 +209,22 @@ export async function importSchedule(
     console.error("importSchedule failed", err);
     return { ok: false, error: "The import failed and nothing was changed." };
   }
+
+  await recordAudit({
+    siteId,
+    actorId: access.user.id,
+    actorName: access.user.name,
+    action: "UPDATE",
+    entity: "PileSchedule",
+    entityId: siteId,
+    entityLabel: file.name,
+    changes: {
+      pilesAdded: { from: null, to: toCreate.length },
+      pilesUpdated: { from: null, to: toUpdate.length },
+      rowsSkipped: { from: null, to: errors.length },
+    },
+    reason: `Schedule import from ${file.name}`,
+  });
 
   revalidatePath("/", "layout");
   return {

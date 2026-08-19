@@ -574,6 +574,21 @@ export function PileLogForm({
         ) : null}
       </section>
 
+      {mode === "edit" ? (
+        <Fieldset
+          title="Reason for this change"
+          description="Recorded against the audit trail. A quantity that changes without a reason is the one a quantity surveyor will challenge."
+        >
+          <Field label="Why is this record changing?" className="sm:col-span-3">
+            <input
+              name="changeReason"
+              className="field"
+              placeholder="Missing final delivery ticket added"
+            />
+          </Field>
+        </Fieldset>
+      ) : null}
+
       <Fieldset title="Ground &amp; notes">
         <Field label="Weather" className="sm:col-span-1">
           <input name="weather" className="field" defaultValue={values.weather} />

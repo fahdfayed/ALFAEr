@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getSite } from "@/lib/site";
+import { requirePermission } from "@/lib/auth/access";
 import {
   AddDrillerForm,
   AddRigForm,
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 const s = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
 export default async function SettingsPage() {
-  const site = await getSite();
+  const { site } = await requirePermission("manageProject");
   const [rigs, drillers, pileCount, positionedCount] = await Promise.all([
     prisma.rig.findMany({ where: { siteId: site.id }, orderBy: { name: "asc" } }),
     prisma.driller.findMany({ where: { siteId: site.id }, orderBy: { name: "asc" } }),

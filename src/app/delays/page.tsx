@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { getDelayRows, groupLostTime, totalMinutes } from "@/lib/delayQueries";
 import { CATEGORY_COLOR, CATEGORY_LABEL, formatHours, toHours } from "@/lib/delays";
 import { EndDelayButton } from "@/components/EndDelayButton";
@@ -22,7 +22,8 @@ export default async function DelaysPage({
   searchParams: Promise<{ range?: string; saved?: string }>;
 }) {
   const sp = await searchParams;
-  const site = await getSite();
+  const access = await requireAccess();
+  const site = access.site;
 
   const range = RANGES.find((r) => r.key === sp.range) ?? RANGES[1];
   const from = range.days
@@ -62,9 +63,11 @@ export default async function DelaysPage({
             What stopped production, for how long, and where it came from.
           </p>
         </div>
-        <Link href="/delays/new" className="btn-primary no-print">
-          + Record delay
-        </Link>
+        {access.can("recordWork") ? (
+          <Link href="/delays/new" className="btn-primary no-print">
+            + Record delay
+          </Link>
+        ) : null}
       </div>
 
       <nav className="no-print flex flex-wrap gap-2">
@@ -130,7 +133,9 @@ export default async function DelaysPage({
                         Since {clockTime(r.delay.startedAt)} · {formatHours(r.minutes)} so far
                       </p>
                     </div>
-                    <EndDelayButton id={r.delay.id} />
+                    {access.can("recordWork") ? (
+                      <EndDelayButton id={r.delay.id} />
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -258,12 +263,14 @@ export default async function DelaysPage({
                         {formatHours(r.minutes)}
                       </td>
                       <td className="px-4 py-2 text-right">
-                        <Link
-                          href={`/delays/${r.delay.id}/edit`}
-                          className="text-xs underline"
-                        >
-                          Edit
-                        </Link>
+                        {access.can("recordWork") ? (
+                          <Link
+                            href={`/delays/${r.delay.id}/edit`}
+                            className="text-xs underline"
+                          >
+                            Edit
+                          </Link>
+                        ) : null}
                       </td>
                     </tr>
                   ))}

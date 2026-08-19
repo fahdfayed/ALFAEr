@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { prisma } from "@/lib/db";
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { getPileRows, totalise } from "@/lib/queries";
 import { EmptyState } from "@/components/ui";
 import { isoDate, longDate, m3, num, pct } from "@/lib/format";
@@ -9,7 +9,7 @@ import { isoDate, longDate, m3, num, pct } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function DailyReportsPage() {
-  const site = await getSite();
+  const { site } = await requireAccess();
   const thresholds = {
     amberPct: site.overbreakAmberPct,
     redPct: site.overbreakRedPct,

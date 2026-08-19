@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { prisma } from "@/lib/db";
-import { getSiteId } from "@/lib/site";
+import { requireActionAccess, NotPermittedError } from "@/lib/auth/access";
+import { diff, recordAudit } from "@/lib/audit";
 import { isDelayCategory, reasonsFor } from "@/lib/delays";
 import { parseDateOnly, parseLocalDateTime } from "@/lib/format";
 import { optString, type ActionState } from "@/lib/parse";
@@ -20,7 +21,8 @@ export async function saveDelay(
   let redirectTo: string | null = null;
 
   try {
-    const siteId = await getSiteId();
+    const access = await requireActionAccess("recordWork");
+    const siteId = access.site.id;
 
     const category = optString(formData.get("category"));
     if (!category || !isDelayCategory(category)) {
@@ -77,12 +79,33 @@ export async function saveDelay(
       const existing = await prisma.delay.findFirst({ where: { id, siteId } });
       if (!existing) return { ok: false, error: "That delay no longer exists." };
       await prisma.delay.update({ where: { id }, data });
+      await recordAudit({
+        siteId,
+        actorId: access.user.id,
+        actorName: access.user.name,
+        action: "UPDATE",
+        entity: "Delay",
+        entityId: id,
+        entityLabel: `${reason}`,
+        changes: diff(existing as unknown as Record<string, unknown>, data),
+      });
     } else {
-      await prisma.delay.create({ data });
+      const created = await prisma.delay.create({ data });
+      await recordAudit({
+        siteId,
+        actorId: access.user.id,
+        actorName: access.user.name,
+        action: "CREATE",
+        entity: "Delay",
+        entityId: created.id,
+        entityLabel: `${reason}`,
+        changes: diff(null, data),
+      });
     }
 
     redirectTo = `/delays?saved=1`;
   } catch (err) {
+    if (err instanceof NotPermittedError) return { ok: false, error: err.message };
     console.error("saveDelay failed", err);
     return { ok: false, error: "Could not save the delay. Please try again." };
   }
@@ -93,20 +116,50 @@ export async function saveDelay(
 
 /** Closes an open delay at the current time — the one-tap "we're moving again". */
 export async function endDelay(id: string) {
-  const siteId = await getSiteId();
-  const delay = await prisma.delay.findFirst({ where: { id, siteId } });
+  const access = await requireActionAccess("recordWork");
+  const delay = await prisma.delay.findFirst({
+    where: { id, siteId: access.site.id },
+  });
   if (!delay || delay.endedAt) return;
 
   const now = new Date();
+  const minutes = minutesBetween(delay.startedAt, now);
   await prisma.delay.update({
     where: { id },
-    data: { endedAt: now, minutes: minutesBetween(delay.startedAt, now) },
+    data: { endedAt: now, minutes },
+  });
+  await recordAudit({
+    siteId: access.site.id,
+    actorId: access.user.id,
+    actorName: access.user.name,
+    action: "UPDATE",
+    entity: "Delay",
+    entityId: id,
+    entityLabel: delay.reason,
+    changes: {
+      endedAt: { from: null, to: now.toISOString() },
+      minutes: { from: null, to: minutes },
+    },
   });
   revalidatePath("/", "layout");
 }
 
 export async function deleteDelay(id: string) {
-  const siteId = await getSiteId();
-  await prisma.delay.deleteMany({ where: { id, siteId } });
+  const access = await requireActionAccess("recordWork");
+  const delay = await prisma.delay.findFirst({
+    where: { id, siteId: access.site.id },
+  });
+  if (!delay) return;
+
+  await prisma.delay.delete({ where: { id } });
+  await recordAudit({
+    siteId: access.site.id,
+    actorId: access.user.id,
+    actorName: access.user.name,
+    action: "DELETE",
+    entity: "Delay",
+    entityId: id,
+    entityLabel: delay.reason,
+  });
   revalidatePath("/", "layout");
 }

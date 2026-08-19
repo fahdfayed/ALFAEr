@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { getPileRowsForDate, totalise } from "@/lib/queries";
 import { getDelayRows, totalMinutes } from "@/lib/delayQueries";
 import { CATEGORY_COLOR, CATEGORY_LABEL, formatHours, toHours } from "@/lib/delays";
@@ -24,7 +24,8 @@ export default async function DailyReportPage({
   const reportDate = new Date(`${date}T00:00:00Z`);
   if (Number.isNaN(reportDate.getTime())) notFound();
 
-  const site = await getSite();
+  const access = await requireAccess();
+  const site = access.site;
   const thresholds = {
     amberPct: site.overbreakAmberPct,
     redPct: site.overbreakRedPct,
@@ -178,9 +179,11 @@ export default async function DailyReportPage({
       <section className="card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
           <h2 className="section-title">Delays</h2>
-          <Link href="/delays/new" className="btn-secondary no-print !px-3 !py-1.5 text-xs">
-            + Record delay
-          </Link>
+          {access.can("recordWork") ? (
+            <Link href="/delays/new" className="btn-secondary no-print !px-3 !py-1.5 text-xs">
+              + Record delay
+            </Link>
+          ) : null}
         </div>
         {delays.length === 0 ? (
           <p className="px-4 py-4 text-sm text-slate-500">
@@ -243,6 +246,7 @@ export default async function DailyReportPage({
       </section>
 
       <div className="no-print">
+        {access.can("recordWork") ? (
         <DailyReportForm
           reportDate={date}
           values={{
@@ -257,6 +261,7 @@ export default async function DailyReportPage({
             preparedBy: s(report?.preparedBy),
           }}
         />
+        ) : null}
       </div>
     </div>
   );

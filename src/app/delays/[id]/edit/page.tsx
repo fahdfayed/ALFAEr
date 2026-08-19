@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
-import { getSite } from "@/lib/site";
+import { requirePermission } from "@/lib/auth/access";
 import { DelayForm } from "@/components/DelayForm";
 import { isoDate, toLocalDateTimeValue } from "@/lib/format";
 
@@ -15,7 +15,7 @@ export default async function EditDelayPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const site = await getSite();
+  const { site } = await requirePermission("recordWork");
 
   const [delay, rigs, piles] = await Promise.all([
     prisma.delay.findFirst({ where: { id, siteId: site.id } }),

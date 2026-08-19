@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { getPileRows } from "@/lib/queries";
 import { getDelayRows } from "@/lib/delayQueries";
 import { drillRateByDiameter, rigProductivity } from "@/lib/productivity";
@@ -24,7 +24,7 @@ export default async function ProductivityPage({
   searchParams: Promise<{ range?: string }>;
 }) {
   const sp = await searchParams;
-  const site = await getSite();
+  const { site } = await requireAccess();
   const range = RANGES.find((r) => r.key === sp.range) ?? RANGES[1];
   const from = range.days
     ? new Date(`${isoDate(new Date(Date.now() - range.days * 86400000))}T00:00:00Z`)

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { toRow } from "@/lib/queries";
 import { pileLogPdf } from "@/lib/pdf/pileLog";
 import { isoDate } from "@/lib/format";
@@ -14,7 +14,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
-  const site = await getSite();
+  const { site } = await requireAccess();
 
   const pile = await prisma.pile.findFirst({
     where: { id, siteId: site.id },

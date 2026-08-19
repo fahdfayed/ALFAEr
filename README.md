@@ -19,7 +19,11 @@ layout progress board, with nothing retyped.
 | **Layout** (`/layout`) | The setting-out plan drawn from survey coordinates, coloured by status or by overbreak. Becomes the as-built pile map at handover. |
 | **Reports** (`/daily`) | One row per worked shift. Production figures are derived; only the narrative is typed. |
 | **PDFs** | `/api/piles/<id>/pdf` and `/api/daily/<yyyy-mm-dd>/pdf`. |
-| **Settings** (`/settings`) | Contract details, overbreak thresholds, concrete rate, rigs, drillers, and pile schedule import. |
+| **Lost time** (`/delays`) | Delays recorded in two taps at the point they happen, grouped by cause, reason and rig. |
+| **Productivity** (`/productivity`) | Metres per hour, piles per day, cycle time, waiting time and utilisation, derived from the pile logs. |
+| **Audit** (`/audit`) | Every change to every record: who, when, and the values before and after. |
+| **Settings** (`/settings`) | Contract details, overbreak thresholds, concrete rate, shift hours, rigs, drillers, and pile schedule import. |
+| **Admin** (`/admin`) | People, roles and projects. |
 
 ## The one calculation that matters
 
@@ -39,6 +43,59 @@ Project and group totals are weighted by volume, not averaged across piles. A
 mean of percentages lets one short pile with a wild variance dominate a figure
 that's meant to describe the contract.
 
+## Access control
+
+Sign-in is required for everything, including the PDF routes. Passwords are
+stored as salted scrypt hashes; sessions are random tokens stored only as
+hashes, so a leaked database does not hand over live sessions. Changing a
+password or deactivating an account revokes every existing session at once.
+
+Each person holds a role **per project**:
+
+| Role | Can |
+| --- | --- |
+| **Viewer** | Read everything, including the audit trail. Change nothing. |
+| **Foreman** | Record pile logs and delays. Cannot change contract settings. |
+| **Engineer** | Everything on the project, including settings and imports. |
+
+A separate system-administrator flag governs creating projects and managing
+people. An administrator without a project role can configure a project but
+cannot write site records against it — work is recorded by whoever actually
+holds a role on the job, so the audit trail always names a real person in a
+real position.
+
+The first visit to a fresh installation asks for a name, email and password
+and creates the administrator account. That route refuses once any user
+exists.
+
+**What this is not:** there is no MFA, no self-service password reset, and no
+SSO. Failed sign-ins are throttled per email, not per network. This is
+proportionate for an internal tool on a private network; it is not enough to
+put on the open internet.
+
+## The audit trail
+
+Every write records who did it, what changed, and the value before and after.
+Editing a pile log asks for a reason, because a quantity that changes without
+one is the quantity a QS will challenge:
+
+```
+Layla Haddad updated the record · 2026-08-19 12:36
+Missing final delivery ticket added
+  Concrete poured (m³): 19.28 → 20.78
+```
+
+The diff ignores bookkeeping columns, treats float noise from the database as
+no change, and skips writing an entry when a form is saved without altering
+anything — so the log holds only real events. Entries are written in the same
+transaction as the change itself.
+
+## Projects
+
+Each contract is a project, and everything is scoped to it. The switcher in
+the header only lists projects you hold a role on. Archived projects stay
+readable but drop out of the switcher.
+
 ## Running it
 
 Requires Node 20+ and PostgreSQL 14+.
@@ -52,9 +109,20 @@ npm run db:seed                      # optional: a worked demo contract
 npm run dev
 ```
 
+On first run, open the app and create the administrator account.
+
+If you serve the app over **plain HTTP** on an internal network, set
+`AUTH_COOKIE_SECURE=false`. Browsers refuse to store a Secure cookie from a
+plain-HTTP origin that is not localhost, so without it sign-in appears to
+succeed and then bounces straight back with nothing in the logs to explain
+it.
+
 The seed builds a 120-pile contract with 14 shifts of production, deliberately
 including a rig and a pile diameter that run hot, so the overbreak dashboard
-has a real pattern to surface.
+has a real pattern to surface. It also creates one account per role —
+`admin@`, `engineer@`, `foreman@` and `client@alfaer.test`, password
+`alfaer-demo-2026` — so the permission model can be seen working. Delete them
+before using the install for real work.
 
 ### Commands
 
@@ -94,12 +162,12 @@ There is one database behind every view. Nothing is stored twice.
 
 Deliberately out of scope for this first release, in rough order of value:
 
-- **Authentication and roles.** The app currently has no login. Anyone who can
-  reach it can write a pile log. Put it behind a VPN or an authenticating proxy
-  until this lands.
-- **Audit trail.** Edits overwrite in place; there is no record of who changed a
-  poured volume from 18.5 to 19.0 or why.
-- **Offline capture.** The form assumes a connection at the rig.
-- **Photographs**, QA/QC hold points, testing register and NCRs.
+- **Photographs** attached to a pile. Piling disputes are settled by photos of
+  the cage, the tremie and the obstruction; this is the largest remaining gap.
+- **Concrete reconciliation** — ordered against delivered against allocated to
+  piles. The overbreak dashboard sees concrete that reached a pile; it is blind
+  to concrete paid for that never got allocated to one.
 - **Shoring instrumentation** with trigger levels and breach alerts.
-- **Tender estimator** and RFQ intake.
+- **QA/QC hold points**, testing register and NCRs.
+- **Offline capture.** The form assumes a connection at the rig.
+- **Programme forecast**, tender estimator and RFQ intake.

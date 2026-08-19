@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import type { PileStatus } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
-import { getSiteId } from "@/lib/site";
+import { requireActionAccess, NotPermittedError } from "@/lib/auth/access";
+import { diff, recordAudit } from "@/lib/audit";
 import { PILE_STATUSES } from "@/lib/status";
 import { OFF_SCHEDULE } from "@/lib/constants";
 import { parseDateOnly, parseLocalDateTime } from "@/lib/format";
@@ -69,9 +70,11 @@ export async function savePileLog(
   formData: FormData,
 ): Promise<ActionState> {
   let pileId: string | null = null;
+  let pileRef = "";
 
   try {
-    const siteId = await getSiteId();
+    const access = await requireActionAccess("recordWork");
+    const siteId = access.site.id;
 
     const workDate = parseDateOnly(formData.get("workDate"));
     if (!workDate) return { ok: false, error: "Work date is required." };
@@ -122,10 +125,19 @@ export async function savePileLog(
     }
 
     const existingPileId = pileSelection === OFF_SCHEDULE ? null : pileSelection;
+    let previousLog: Record<string, unknown> | null = null;
+    let previousStatus: string | null = null;
+
     if (existingPileId) {
-      const pile = await prisma.pile.findFirst({ where: { id: existingPileId, siteId } });
+      const pile = await prisma.pile.findFirst({
+        where: { id: existingPileId, siteId },
+        include: { log: true },
+      });
       if (!pile) return { ok: false, error: "That pile is not on this site." };
       pileId = pile.id;
+      pileRef = pile.ref;
+      previousLog = pile.log as Record<string, unknown> | null;
+      previousStatus = pile.status;
       await prisma.pile.update({ where: { id: pileId }, data: { status } });
     } else {
       const ref = reqString(formData.get("newPileRef"), "Pile reference");
@@ -150,6 +162,7 @@ export async function savePileLog(
         },
       });
       pileId = created.id;
+      pileRef = created.ref;
     }
 
     const logData = {
@@ -188,6 +201,15 @@ export async function savePileLog(
     };
 
     const logId = pileId;
+    const label = pileRef;
+
+    // Status lives on the pile rather than the log, so it is folded into the
+    // same change set — a pile moving to Cast is part of the same edit.
+    const changes = diff(previousLog, {
+      ...logData,
+      ...(previousStatus === null || previousStatus !== status ? { status } : {}),
+    });
+
     await prisma.$transaction(async (tx) => {
       await tx.pileLog.upsert({
         where: { id: logId },
@@ -201,9 +223,25 @@ export async function savePileLog(
           data: loads.map((l, i) => ({ ...l, pileLogId: logId, sequence: i })),
         });
       }
+
+      // Written inside the transaction: a record that changed without a trail
+      // entry is exactly the situation the trail exists to prevent.
+      await recordAudit({
+        tx,
+        siteId,
+        actorId: access.user.id,
+        actorName: access.user.name,
+        action: previousLog ? "UPDATE" : "CREATE",
+        entity: "PileLog",
+        entityId: logId,
+        entityLabel: label,
+        changes,
+        reason: optString(formData.get("changeReason")),
+      });
     });
   } catch (err) {
     if (err instanceof FieldError) return { ok: false, error: err.message };
+    if (err instanceof NotPermittedError) return { ok: false, error: err.message };
     console.error("savePileLog failed", err);
     return { ok: false, error: "Could not save the pile log. Please try again." };
   }
@@ -220,9 +258,24 @@ export async function savePileLog(
 
 /** Status changes from the layout board and pile list, without opening the log. */
 export async function setPileStatus(pileId: string, status: PileStatus) {
-  const siteId = await getSiteId();
+  const access = await requireActionAccess("recordWork");
+  const siteId = access.site.id;
   if (!(PILE_STATUSES as string[]).includes(status)) return;
+
+  const pile = await prisma.pile.findFirst({ where: { id: pileId, siteId } });
+  if (!pile || pile.status === status) return;
+
   await prisma.pile.updateMany({ where: { id: pileId, siteId }, data: { status } });
+  await recordAudit({
+    siteId,
+    actorId: access.user.id,
+    actorName: access.user.name,
+    action: "UPDATE",
+    entity: "Pile",
+    entityId: pileId,
+    entityLabel: pile.ref,
+    changes: { status: { from: pile.status, to: status } },
+  });
   revalidatePath("/layout");
   revalidatePath("/piles");
   revalidatePath(`/piles/${pileId}`);

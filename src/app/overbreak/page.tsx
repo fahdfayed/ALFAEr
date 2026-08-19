@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { getPileRows, totalise } from "@/lib/queries";
 import { breakdownBy, distribution } from "@/lib/breakdown";
 import { OverbreakChip, Stat, EmptyState } from "@/components/ui";
@@ -9,7 +9,7 @@ import { m3, num, pct } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function OverbreakPage() {
-  const site = await getSite();
+  const { site } = await requireAccess();
   const thresholds = {
     amberPct: site.overbreakAmberPct,
     redPct: site.overbreakRedPct,

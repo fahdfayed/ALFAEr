@@ -8,6 +8,113 @@ datasource db {
 }
 
 /// A contract / site. Everything is scoped to one of these.
+/// A person who can sign in. Users are global; what they may do is decided
+/// per project by their Membership.
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  name         String
+  passwordHash String
+  /// System administrator: manages users and creates projects. Independent of
+  /// project roles, because whoever administers the system is not necessarily
+  /// the engineer on any particular job.
+  isAdmin      Boolean @default(false)
+  active       Boolean @default(true)
+
+  lastLoginAt DateTime?
+
+  memberships  Membership[]
+  sessions     Session[]
+  auditEntries AuditEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  VIEWER
+  FOREMAN
+  ENGINEER
+}
+
+/// What one user may do on one project.
+model Membership {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  role Role @default(FOREMAN)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, siteId])
+  @@index([siteId])
+}
+
+/// A signed-in browser. Only the hash of the session token is stored, so a
+/// leaked database does not hand over live sessions.
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Failed sign-in attempts, used to slow down guessing. Cleared on success.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+/// Who changed what, when, and from what to what. The reason a pile log PDF
+/// can be defended six months later.
+model AuditEntry {
+  id     String  @id @default(cuid())
+  siteId String?
+  site   Site?   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  actorId   String?
+  actor     User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  /// Kept alongside actorId so the trail still reads correctly after a user
+  /// is deleted.
+  actorName String
+
+  action      AuditAction
+  /// Model name, e.g. "PileLog".
+  entity      String
+  entityId    String
+  /// Human-readable identifier, e.g. "P-101", so the log is legible without
+  /// resolving ids.
+  entityLabel String
+
+  /// Field-level before/after values: { field: { from, to } }.
+  changes Json?
+  reason  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([siteId, createdAt])
+  @@index([entity, entityId])
+}
+
 model Site {
   id          String  @id @default(cuid())
   name        String
@@ -28,11 +135,16 @@ model Site {
   concreteRatePerM3 Float?
   currency          String @default("AED")
 
+  /// Archived projects stay readable but drop out of the switcher.
+  archived Boolean @default(false)
+
   rigs         Rig[]
   drillers     Driller[]
   piles        Pile[]
   dailyReports DailyReport[]
   delays       Delay[]
+  memberships  Membership[]
+  auditEntries AuditEntry[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

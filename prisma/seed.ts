@@ -1,4 +1,19 @@
 import { PrismaClient, type DelayCategory, type PileStatus } from "@prisma/client";
+import { randomBytes, scrypt as scryptCb } from "node:crypto";
+import { promisify } from "node:util";
+
+const scrypt = promisify(scryptCb) as (
+  password: string,
+  salt: Buffer,
+  keylen: number,
+) => Promise<Buffer>;
+
+/** Mirrors src/lib/auth/password.ts so the seed produces verifiable hashes. */
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16);
+  const derived = await scrypt(password, salt, 64);
+  return `scrypt$${salt.toString("base64")}$${derived.toString("base64")}`;
+}
 
 const prisma = new PrismaClient();
 
@@ -36,6 +51,11 @@ function at(day: Date, hour: number, minute: number) {
 }
 
 async function main() {
+  await prisma.auditEntry.deleteMany();
+  await prisma.session.deleteMany();
+  await prisma.loginAttempt.deleteMany();
+  await prisma.membership.deleteMany();
+  await prisma.user.deleteMany();
   await prisma.delay.deleteMany();
   await prisma.concreteLoad.deleteMany();
   await prisma.pileLog.deleteMany();
@@ -57,6 +77,31 @@ async function main() {
       currency: "AED",
     },
   });
+
+  // Demo accounts covering each role, so permissions can be seen working.
+  const DEMO_PASSWORD = "alfaer-demo-2026";
+  const people = [
+    { email: "admin@alfaer.test", name: "System Administrator", isAdmin: true, role: null },
+    { email: "engineer@alfaer.test", name: "Layla Haddad", isAdmin: false, role: "ENGINEER" as const },
+    { email: "foreman@alfaer.test", name: "Tariq Nasser", isAdmin: false, role: "FOREMAN" as const },
+    { email: "client@alfaer.test", name: "Marina Development", isAdmin: false, role: "VIEWER" as const },
+  ];
+
+  for (const person of people) {
+    const user = await prisma.user.create({
+      data: {
+        email: person.email,
+        name: person.name,
+        isAdmin: person.isAdmin,
+        passwordHash: await hashPassword(DEMO_PASSWORD),
+      },
+    });
+    if (person.role) {
+      await prisma.membership.create({
+        data: { userId: user.id, siteId: site.id, role: person.role },
+      });
+    }
+  }
 
   const rigs = await Promise.all(
     RIGS.map((r) => prisma.rig.create({ data: { ...r, siteId: site.id } })),
@@ -266,6 +311,9 @@ async function main() {
   const delayCount = await prisma.delay.count();
   console.log(
     `Seeded ${site.name}: ${created.length} piles in the register, ${count} logged, ${delayCount} delays.`,
+  );
+  console.log(
+    `Sign in with any of ${people.map((p) => p.email).join(", ")} — password "${DEMO_PASSWORD}".`,
   );
 }
 

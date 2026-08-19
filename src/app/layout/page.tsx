@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { getPileRows } from "@/lib/queries";
 import { LayoutBoard, type BoardPile } from "@/components/LayoutBoard";
 import { EmptyState } from "@/components/ui";
@@ -9,7 +9,7 @@ import { isoDate } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 export default async function LayoutPage() {
-  const site = await getSite();
+  const { site } = await requireAccess();
   const rows = await getPileRows(site.id, {
     amberPct: site.overbreakAmberPct,
     redPct: site.overbreakRedPct,

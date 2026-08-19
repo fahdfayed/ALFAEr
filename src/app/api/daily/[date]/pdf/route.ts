@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { getPileRowsForDate, totalise } from "@/lib/queries";
 import { getDelayRows } from "@/lib/delayQueries";
 import { dailyReportPdf } from "@/lib/pdf/dailyReport";
@@ -22,7 +22,7 @@ export async function GET(
     return new NextResponse("Invalid date", { status: 400 });
   }
 
-  const site = await getSite();
+  const { site } = await requireAccess();
   const thresholds = {
     amberPct: site.overbreakAmberPct,
     redPct: site.overbreakRedPct,

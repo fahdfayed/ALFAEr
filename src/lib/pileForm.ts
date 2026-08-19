@@ -1,12 +1,12 @@
 import { prisma } from "@/lib/db";
-import { getSite } from "@/lib/site";
+import { requirePermission } from "@/lib/auth/access";
 import { isoDate, toLocalDateTimeValue } from "@/lib/format";
 import type { PileLogFormValues } from "@/components/PileLogForm";
 
 const s = (v: unknown) => (v === null || v === undefined ? "" : String(v));
 
 export async function loadFormContext() {
-  const site = await getSite();
+  const { site } = await requirePermission("recordWork");
   const [piles, rigs, drillers] = await Promise.all([
     prisma.pile.findMany({
       where: { siteId: site.id },

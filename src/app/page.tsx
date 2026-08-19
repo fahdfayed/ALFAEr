@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { getSite } from "@/lib/site";
+import { requireAccess } from "@/lib/auth/access";
 import { prisma } from "@/lib/db";
 import { getPileRows, getPileRowsForDate, totalise, countByStatus } from "@/lib/queries";
 import { OverbreakChip, Stat, StatusChip, EmptyState } from "@/components/ui";
@@ -10,7 +10,8 @@ import { PILE_STATUSES, STATUS_LABEL } from "@/lib/status";
 export const dynamic = "force-dynamic";
 
 export default async function TodayPage() {
-  const site = await getSite();
+  const access = await requireAccess();
+  const site = access.site;
   const thresholds = {
     amberPct: site.overbreakAmberPct,
     redPct: site.overbreakRedPct,
@@ -77,9 +78,11 @@ export default async function TodayPage() {
           />
         </div>
         <div className="no-print mt-3 flex flex-wrap gap-2">
-          <Link href="/piles/new" className="btn-primary">
-            Log a pile
-          </Link>
+          {access.can("recordWork") ? (
+            <Link href="/piles/new" className="btn-primary">
+              Log a pile
+            </Link>
+          ) : null}
           <Link href={`/daily/${isoDate(today)}`} className="btn-secondary">
             Today&rsquo;s report
           </Link>

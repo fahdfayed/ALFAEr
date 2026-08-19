@@ -1,12 +1,12 @@
 import { prisma } from "@/lib/db";
-import { getSite } from "@/lib/site";
+import { requirePermission } from "@/lib/auth/access";
 import { DelayForm } from "@/components/DelayForm";
 import { isoDate, toLocalDateTimeValue } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewDelayPage() {
-  const site = await getSite();
+  const { site } = await requirePermission("recordWork");
   const [rigs, piles] = await Promise.all([
     prisma.rig.findMany({
       where: { siteId: site.id, active: true },
