@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A contract / site. Everything is scoped to one of these.
+model Site {
+  id          String  @id @default(cuid())
+  name        String
+  clientName  String?
+  contractRef String?
+  location    String?
+
+  /// Overbreak above this percentage is flagged red on the dashboard.
+  overbreakRedPct   Float @default(15)
+  /// Overbreak above this percentage is flagged amber.
+  overbreakAmberPct Float @default(8)
+
+  /// Used to price the additional concrete on the overbreak dashboard.
+  concreteRatePerM3 Float?
+  currency          String @default("AED")
+
+  rigs         Rig[]
+  drillers     Driller[]
+  piles        Pile[]
+  dailyReports DailyReport[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Rig {
+  id     String @id @default(cuid())
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  name   String
+  make   String?
+  active Boolean @default(true)
+
+  logs PileLog[]
+
+  @@unique([siteId, name])
+}
+
+model Driller {
+  id     String @id @default(cuid())
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  name   String
+  active Boolean @default(true)
+
+  logs PileLog[]
+
+  @@unique([siteId, name])
+}
+
+enum PileStatus {
+  NOT_STARTED
+  BORED
+  CAST
+  TESTED
+  ACCEPTED
+  REJECTED
+}
+
+/// One pile from the setting-out schedule. Exists before any work happens,
+/// which is what lets the progress board show "not started" piles.
+model Pile {
+  id     String @id @default(cuid())
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  /// Pile mark from the setting-out drawing, e.g. "P-101".
+  ref      String
+  gridRef  String?
+  /// Setting-out coordinates, used to draw the layout progress board.
+  eastingM  Float?
+  northingM Float?
+
+  designDiameterMm    Int
+  designToeDepthM     Float
+  designCutoffLevelM  Float?
+  designPlatformLevelM Float?
+
+  status PileStatus @default(NOT_STARTED)
+
+  log PileLog?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([siteId, ref])
+  @@index([siteId, status])
+}
+
+/// The as-built record for a pile — the digital version of the paper sheet.
+model PileLog {
+  id     String @id
+  pile   Pile   @relation(fields: [id], references: [id], onDelete: Cascade)
+
+  /// The shift this pile belongs to, for the daily site report.
+  workDate DateTime @db.Date
+
+  rigId     String?
+  rig       Rig?     @relation(fields: [rigId], references: [id], onDelete: SetNull)
+  drillerId String?
+  driller   Driller? @relation(fields: [drillerId], references: [id], onDelete: SetNull)
+
+  // --- Bore ---
+  boreStartedAt  DateTime?
+  boreFinishedAt DateTime?
+  asBuiltDiameterMm Int
+  toeDepthM         Float
+  platformLevelM    Float?
+  cutoffLevelM      Float?
+  waterStrikeDepthM Float?
+  verticalityPct    Float?
+
+  // --- Casing ---
+  casingDepthM      Float?
+  casingDiameterMm  Int?
+  casingType        String?
+
+  // --- Reinforcement cage ---
+  cageMark        String?
+  cageLengthM     Float?
+  cageDiameterMm  Int?
+  cageMainBars    String?
+  cageLinks       String?
+  cageTopDepthM   Float?
+  cageInstalledAt DateTime?
+
+  // --- Concrete ---
+  concreteStartedAt  DateTime?
+  concreteFinishedAt DateTime?
+  concreteGrade      String?
+  concreteMixRef     String?
+  slumpMm            Int?
+  cubesTaken         Int?    @default(0)
+  /// Depth below platform of the top of the cast concrete. 0 = cast to platform.
+  concreteTopDepthM  Float   @default(0)
+  /// Total m3 actually placed. Kept in sync with the sum of the load tickets
+  /// when any are recorded.
+  pouredVolumeM3     Float
+
+  strata  String?
+  weather String?
+  remarks String?
+
+  loads ConcreteLoad[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([workDate])
+}
+
+/// One concrete delivery ticket against a pile.
+model ConcreteLoad {
+  id        String  @id @default(cuid())
+  pileLogId String
+  pileLog   PileLog @relation(fields: [pileLogId], references: [id], onDelete: Cascade)
+
+  ticketRef String?
+  volumeM3  Float
+  arrivedAt DateTime?
+  slumpMm   Int?
+  sequence  Int     @default(0)
+
+  @@index([pileLogId])
+}
+
+/// Per-day narrative that isn't attached to any single pile. The pile rows on
+/// the daily report PDF are derived from PileLog.workDate.
+model DailyReport {
+  id     String @id @default(cuid())
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  reportDate DateTime @db.Date
+
+  weather       String?
+  temperatureC  Int?
+  personnelCount Int?
+  plantOnSite   String?
+  delays        String?
+  hseNotes      String?
+  visitors      String?
+  generalNotes  String?
+  preparedBy    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([siteId, reportDate])
+}

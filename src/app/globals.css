@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+}
+
+/* Site use is thumb-first: inputs need to be large enough to hit in gloves,
+   and 16px stops iOS zooming on focus. */
+.field {
+  @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base
+         shadow-sm outline-none transition
+         focus:border-slate-900 focus:ring-2 focus:ring-slate-900/10
+         disabled:bg-slate-100;
+}
+
+.label {
+  @apply mb-1 block text-sm font-medium text-slate-700;
+}
+
+.hint {
+  @apply mt-1 text-xs text-slate-500;
+}
+
+/* Declared as a utility so the variants below can @apply it (Tailwind v4). */
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5
+         text-sm font-semibold shadow-sm transition
+         focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+}
+
+.btn-primary {
+  @apply btn bg-slate-900 text-white hover:bg-slate-700;
+}
+
+.btn-secondary {
+  @apply btn bg-white text-slate-800 ring-1 ring-slate-300 hover:bg-slate-100;
+}
+
+.card {
+  @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+}
+
+.section-title {
+  @apply text-sm font-semibold uppercase tracking-wide text-slate-500;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
