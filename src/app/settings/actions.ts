@@ -13,6 +13,11 @@ export async function saveSite(
 ): Promise<ActionState> {
   const site = await getSite();
   try {
+    const shiftHours = optFloat(formData.get("shiftHours")) ?? 10;
+    if (shiftHours <= 0 || shiftHours > 24) {
+      return { ok: false, error: "Shift hours must be between 0 and 24." };
+    }
+
     const amber = optFloat(formData.get("overbreakAmberPct")) ?? 8;
     const red = optFloat(formData.get("overbreakRedPct")) ?? 15;
     if (amber < 0 || red < 0) return { ok: false, error: "Thresholds cannot be negative." };
@@ -27,6 +32,7 @@ export async function saveSite(
         clientName: optString(formData.get("clientName")),
         contractRef: optString(formData.get("contractRef")),
         location: optString(formData.get("location")),
+        shiftHours: shiftHours,
         overbreakAmberPct: amber,
         overbreakRedPct: red,
         concreteRatePerM3: optFloat(formData.get("concreteRatePerM3")),

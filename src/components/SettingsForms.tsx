@@ -29,6 +29,7 @@ export interface SiteValues {
   clientName: string;
   contractRef: string;
   location: string;
+  shiftHours: string;
   overbreakAmberPct: string;
   overbreakRedPct: string;
   concreteRatePerM3: string;
@@ -58,6 +59,18 @@ export function SiteForm({ values }: { values: SiteValues }) {
         </Field>
         <Field label="Location">
           <input name="location" className="field" defaultValue={values.location} />
+        </Field>
+        <Field
+          label="Shift hours per rig"
+          hint="The denominator for rig utilisation."
+        >
+          <input
+            name="shiftHours"
+            className="field"
+            type="number"
+            step="0.5"
+            defaultValue={values.shiftHours}
+          />
         </Field>
         <Field label="Amber overbreak (%)" hint="Elevated, worth a look.">
           <input

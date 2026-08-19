@@ -20,6 +20,10 @@ model Site {
   /// Overbreak above this percentage is flagged amber.
   overbreakAmberPct Float @default(8)
 
+  /// Planned working hours per rig per shift, used as the denominator for
+  /// utilisation. Without it "utilisation" has no meaningful base.
+  shiftHours Float @default(10)
+
   /// Used to price the additional concrete on the overbreak dashboard.
   concreteRatePerM3 Float?
   currency          String @default("AED")
@@ -28,6 +32,7 @@ model Site {
   drillers     Driller[]
   piles        Pile[]
   dailyReports DailyReport[]
+  delays       Delay[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -42,7 +47,8 @@ model Rig {
   make   String?
   active Boolean @default(true)
 
-  logs PileLog[]
+  logs   PileLog[]
+  delays Delay[]
 
   @@unique([siteId, name])
 }
@@ -77,15 +83,15 @@ model Pile {
   site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
 
   /// Pile mark from the setting-out drawing, e.g. "P-101".
-  ref      String
-  gridRef  String?
+  ref       String
+  gridRef   String?
   /// Setting-out coordinates, used to draw the layout progress board.
   eastingM  Float?
   northingM Float?
 
-  designDiameterMm    Int
-  designToeDepthM     Float
-  designCutoffLevelM  Float?
+  designDiameterMm     Int
+  designToeDepthM      Float
+  designCutoffLevelM   Float?
   designPlatformLevelM Float?
 
   status PileStatus @default(NOT_STARTED)
@@ -101,8 +107,8 @@ model Pile {
 
 /// The as-built record for a pile — the digital version of the paper sheet.
 model PileLog {
-  id     String @id
-  pile   Pile   @relation(fields: [id], references: [id], onDelete: Cascade)
+  id   String @id
+  pile Pile   @relation(fields: [id], references: [id], onDelete: Cascade)
 
   /// The shift this pile belongs to, for the daily site report.
   workDate DateTime @db.Date
@@ -113,8 +119,8 @@ model PileLog {
   driller   Driller? @relation(fields: [drillerId], references: [id], onDelete: SetNull)
 
   // --- Bore ---
-  boreStartedAt  DateTime?
-  boreFinishedAt DateTime?
+  boreStartedAt     DateTime?
+  boreFinishedAt    DateTime?
   asBuiltDiameterMm Int
   toeDepthM         Float
   platformLevelM    Float?
@@ -123,9 +129,9 @@ model PileLog {
   verticalityPct    Float?
 
   // --- Casing ---
-  casingDepthM      Float?
-  casingDiameterMm  Int?
-  casingType        String?
+  casingDepthM     Float?
+  casingDiameterMm Int?
+  casingType       String?
 
   // --- Reinforcement cage ---
   cageMark        String?
@@ -142,9 +148,9 @@ model PileLog {
   concreteGrade      String?
   concreteMixRef     String?
   slumpMm            Int?
-  cubesTaken         Int?    @default(0)
+  cubesTaken         Int?      @default(0)
   /// Depth below platform of the top of the cast concrete. 0 = cast to platform.
-  concreteTopDepthM  Float   @default(0)
+  concreteTopDepthM  Float     @default(0)
   /// Total m3 actually placed. Kept in sync with the sum of the load tickets
   /// when any are recorded.
   pouredVolumeM3     Float
@@ -153,7 +159,8 @@ model PileLog {
   weather String?
   remarks String?
 
-  loads ConcreteLoad[]
+  loads  ConcreteLoad[]
+  delays Delay[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -171,7 +178,7 @@ model ConcreteLoad {
   volumeM3  Float
   arrivedAt DateTime?
   slumpMm   Int?
-  sequence  Int     @default(0)
+  sequence  Int       @default(0)
 
   @@index([pileLogId])
 }
@@ -185,18 +192,68 @@ model DailyReport {
 
   reportDate DateTime @db.Date
 
-  weather       String?
-  temperatureC  Int?
+  weather        String?
+  temperatureC   Int?
   personnelCount Int?
-  plantOnSite   String?
-  delays        String?
-  hseNotes      String?
-  visitors      String?
-  generalNotes  String?
-  preparedBy    String?
+  plantOnSite    String?
+  delays         String?
+  hseNotes       String?
+  visitors       String?
+  generalNotes   String?
+  preparedBy     String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([siteId, reportDate])
+}
+
+/// Broad cause of lost time. Kept coarse on purpose: the value of delay data
+/// comes from consistent grouping, and a driller picking from six buttons on a
+/// phone will do it, where a free-text box gets left empty.
+enum DelayCategory {
+  EQUIPMENT
+  CONCRETE
+  REINFORCEMENT
+  SITE
+  GROUND
+  CLIENT
+  OTHER
+}
+
+/// A period where production stopped. Recorded at the point it happens so the
+/// daily report and the lost-time dashboard build themselves.
+model Delay {
+  id     String @id @default(cuid())
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  /// The shift this delay belongs to, matching PileLog.workDate.
+  workDate DateTime @db.Date
+
+  category DelayCategory
+  /// The specific reason within the category, from a configurable pick list.
+  reason   String
+
+  rigId String?
+  rig   Rig?    @relation(fields: [rigId], references: [id], onDelete: SetNull)
+
+  /// Set when the delay stopped one particular pile rather than the whole site.
+  pileLogId String?
+  pileLog   PileLog? @relation(fields: [pileLogId], references: [id], onDelete: SetNull)
+
+  startedAt DateTime
+  endedAt   DateTime?
+  /// Cached so lost-time totals do not depend on re-deriving from timestamps,
+  /// and so an ongoing delay can be counted up to now without a write.
+  minutes   Int?
+
+  notes      String?
+  recordedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([siteId, workDate])
+  @@index([siteId, category])
 }

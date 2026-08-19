@@ -1,6 +1,8 @@
 import type { DailyReport, Site } from "@prisma/client";
 
 import type { PileRow, Totals } from "@/lib/queries";
+import type { DelayRow } from "@/lib/delayQueries";
+import { CATEGORY_LABEL, formatHours, toHours } from "@/lib/delays";
 import { clockTime, isoDate, longDate, m3, num, pct, text } from "@/lib/format";
 import { STATUS_LABEL } from "@/lib/status";
 import {
@@ -20,7 +22,9 @@ export function dailyReportPdf(
   rows: PileRow[],
   totals: Totals,
   report: DailyReport | null,
+  delays: DelayRow[] = [],
 ): Promise<Buffer> {
+  const lostMinutes = delays.reduce((s, d) => s + d.minutes, 0);
   const bored = rows.filter((r) => r.pile.log?.boreFinishedAt).length;
   const cast = rows.filter((r) => r.pile.log?.concreteFinishedAt).length;
 
@@ -46,6 +50,12 @@ export function dailyReportPdf(
       ["Theoretical concrete", `${m3(totals.theoreticalM3)} m³`],
       ["Additional concrete", `${totals.overbreakM3 > 0 ? "+" : ""}${m3(totals.overbreakM3)} m³`],
       ["Overbreak", totals.count > 0 ? pct(totals.overbreakPct) : "—"],
+      [
+        "Lost time",
+        delays.length > 0
+          ? `${toHours(lostMinutes)} hrs over ${delays.length} event(s)`
+          : "None recorded",
+      ],
       ["Weather", text(report?.weather)],
       [
         "Temperature",
@@ -108,10 +118,40 @@ export function dailyReportPdf(
       );
     }
 
+    sectionTitle(doc, "Delays");
+    if (delays.length === 0) {
+      paragraph(doc, "", "No delays were recorded against this shift.");
+    } else {
+      table(
+        doc,
+        [
+          { header: "Cause", width: 18 },
+          { header: "Reason", width: 26 },
+          { header: "Rig", width: 14 },
+          { header: "Pile", width: 12 },
+          { header: "From", width: 11 },
+          { header: "To", width: 11 },
+          { header: "Lost", width: 12, align: "right" },
+        ],
+        delays.map((d) => [
+          CATEGORY_LABEL[d.delay.category],
+          d.delay.reason,
+          d.rigName ?? "Site",
+          d.pileRef ?? "—",
+          clockTime(d.delay.startedAt),
+          d.open ? "ongoing" : clockTime(d.delay.endedAt),
+          formatHours(d.minutes),
+        ]),
+        {
+          footer: ["Total lost", "", "", "", "", "", formatHours(lostMinutes)],
+        },
+      );
+    }
+
     sectionTitle(doc, "Site record");
     paragraph(doc, "Plant on site", text(report?.plantOnSite));
     paragraph(doc, "Visitors", text(report?.visitors));
-    paragraph(doc, "Delays and lost time", text(report?.delays));
+    if (report?.delays) paragraph(doc, "Delay commentary", report.delays);
     paragraph(doc, "HSE", text(report?.hseNotes));
     paragraph(doc, "General notes", text(report?.generalNotes));
 

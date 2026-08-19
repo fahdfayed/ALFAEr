@@ -19,6 +19,8 @@ const NAV = [
   { href: "/piles", label: "Piles" },
   { href: "/overbreak", label: "Overbreak" },
   { href: "/layout", label: "Layout" },
+  { href: "/delays", label: "Lost time" },
+  { href: "/productivity", label: "Productivity" },
   { href: "/daily", label: "Reports" },
   { href: "/settings", label: "Settings" },
 ];

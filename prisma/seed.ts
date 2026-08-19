@@ -1,4 +1,4 @@
-import { PrismaClient, type PileStatus } from "@prisma/client";
+import { PrismaClient, type DelayCategory, type PileStatus } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -36,6 +36,7 @@ function at(day: Date, hour: number, minute: number) {
 }
 
 async function main() {
+  await prisma.delay.deleteMany();
   await prisma.concreteLoad.deleteMany();
   await prisma.pileLog.deleteMany();
   await prisma.pile.deleteMany();
@@ -195,6 +196,54 @@ async function main() {
     });
   }
 
+  // Delays, weighted the way they actually fall on a piling job: waiting on
+  // concrete dominates the hours, and breakdowns cluster on one tired rig.
+  const DELAY_MIX: { category: DelayCategory; reason: string; weight: number; mins: [number, number] }[] = [
+    { category: "CONCRETE", reason: "Truck delayed", weight: 10, mins: [40, 150] },
+    { category: "CONCRETE", reason: "Concrete rejected on slump", weight: 2, mins: [30, 90] },
+    { category: "EQUIPMENT", reason: "Rig breakdown", weight: 5, mins: [60, 300] },
+    { category: "EQUIPMENT", reason: "Tool / auger failure", weight: 3, mins: [30, 120] },
+    { category: "REINFORCEMENT", reason: "Cage not available", weight: 4, mins: [45, 180] },
+    { category: "REINFORCEMENT", reason: "Crane unavailable for lift", weight: 2, mins: [30, 90] },
+    { category: "CLIENT", reason: "Inspection delay", weight: 3, mins: [30, 120] },
+    { category: "SITE", reason: "Setting out pending", weight: 2, mins: [30, 90] },
+    { category: "GROUND", reason: "Obstruction", weight: 2, mins: [60, 240] },
+  ];
+
+  const weighted = DELAY_MIX.flatMap((d) => Array<typeof d>(d.weight).fill(d));
+
+  for (let shift = 0; shift < shifts; shift++) {
+    const workDate = isoDayUtc(shift);
+    const eventCount = Math.floor(rand() * 3); // 0-2 delays a shift
+    for (let k = 0; k < eventCount; k++) {
+      const pick = weighted[Math.floor(rand() * weighted.length)];
+      const rig = rigs[Math.floor(rand() * rigs.length)];
+      // The oldest rig breaks down more often than the others.
+      const chosenRig =
+        pick.category === "EQUIPMENT" && rand() > 0.35 ? rigs[2] : rig;
+
+      const startHour = 7 + Math.floor(rand() * 9);
+      const startedAt = at(workDate, startHour, Math.floor(rand() * 60));
+      const minutes = Math.round(
+        pick.mins[0] + rand() * (pick.mins[1] - pick.mins[0]),
+      );
+
+      await prisma.delay.create({
+        data: {
+          siteId: site.id,
+          workDate,
+          category: pick.category,
+          reason: pick.reason,
+          rigId: chosenRig.id,
+          startedAt,
+          endedAt: new Date(startedAt.getTime() + minutes * 60000),
+          minutes,
+          recordedBy: "Site Engineer",
+        },
+      });
+    }
+  }
+
   // Narratives for the three most recent shifts.
   for (let d = 0; d < 3; d++) {
     await prisma.dailyReport.create({
@@ -214,8 +263,9 @@ async function main() {
   }
 
   const count = await prisma.pileLog.count();
+  const delayCount = await prisma.delay.count();
   console.log(
-    `Seeded ${site.name}: ${created.length} piles in the register, ${count} logged.`,
+    `Seeded ${site.name}: ${created.length} piles in the register, ${count} logged, ${delayCount} delays.`,
   );
 }
 

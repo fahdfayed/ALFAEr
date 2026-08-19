@@ -75,7 +75,11 @@ export function DailyReportForm({
             placeholder="2 × BG28, 1 × 50t crawler crane, 1 × 30t excavator"
           />
         </Field>
-        <Field label="Delays / lost time" className="sm:col-span-3">
+        <Field
+          label="Delay commentary"
+          className="sm:col-span-3"
+          hint="The delay table on the report is built from recorded delays — this is only for context that the table cannot carry."
+        >
           <textarea name="delays" className="field" rows={2} defaultValue={values.delays} />
         </Field>
         <Field label="HSE notes" className="sm:col-span-3">

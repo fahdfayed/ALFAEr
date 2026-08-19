@@ -4,6 +4,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getSite } from "@/lib/site";
 import { getPileRowsForDate, totalise } from "@/lib/queries";
+import { getDelayRows, totalMinutes } from "@/lib/delayQueries";
+import { CATEGORY_COLOR, CATEGORY_LABEL, formatHours, toHours } from "@/lib/delays";
 import { DailyReportForm } from "@/components/DailyReportForm";
 import { OverbreakChip, Stat, StatusChip } from "@/components/ui";
 import { clockTime, isoDate, longDate, m3, num, pct } from "@/lib/format";
@@ -28,12 +30,15 @@ export default async function DailyReportPage({
     redPct: site.overbreakRedPct,
   };
 
-  const [rows, report] = await Promise.all([
+  const [rows, report, delays] = await Promise.all([
     getPileRowsForDate(site.id, thresholds, reportDate),
     prisma.dailyReport.findUnique({
       where: { siteId_reportDate: { siteId: site.id, reportDate } },
     }),
+    getDelayRows(site.id, { workDate: reportDate }),
   ]);
+
+  const lostMinutes = totalMinutes(delays);
 
   const totals = totalise(rows);
   const bored = rows.filter((r) => r.pile.log?.boreFinishedAt).length;
@@ -72,6 +77,13 @@ export default async function DailyReportPage({
         <Stat label="Bores completed" value={bored} />
         <Stat label="Piles cast" value={cast} />
         <Stat label="Metres drilled" value={num(totals.drilledM, 1)} />
+        <Stat
+          label="Lost time"
+          value={delays.length > 0 ? `${toHours(lostMinutes)} hrs` : "—"}
+          sub={delays.length > 0 ? `${delays.length} event(s)` : undefined}
+          tone={lostMinutes > 0 ? "warn" : "neutral"}
+          href="/delays"
+        />
         <Stat
           label="Concrete"
           value={`${m3(totals.pouredM3, 1)} m³`}
@@ -162,6 +174,73 @@ export default async function DailyReportPage({
           </div>
         </section>
       )}
+
+      <section className="card overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
+          <h2 className="section-title">Delays</h2>
+          <Link href="/delays/new" className="btn-secondary no-print !px-3 !py-1.5 text-xs">
+            + Record delay
+          </Link>
+        </div>
+        {delays.length === 0 ? (
+          <p className="px-4 py-4 text-sm text-slate-500">
+            No delays recorded against this shift.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="mt-2 w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-4 py-2 font-semibold">Cause</th>
+                  <th className="px-4 py-2 font-semibold">Reason</th>
+                  <th className="px-4 py-2 font-semibold">Rig</th>
+                  <th className="px-4 py-2 font-semibold">Pile</th>
+                  <th className="px-4 py-2 font-semibold">From</th>
+                  <th className="px-4 py-2 font-semibold">To</th>
+                  <th className="px-4 py-2 text-right font-semibold">Lost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {delays.map((d) => (
+                  <tr key={d.delay.id} className="border-t border-slate-100">
+                    <td className="px-4 py-2">
+                      <span
+                        className="mr-2 inline-block h-2 w-2 rounded-full align-middle"
+                        style={{ background: CATEGORY_COLOR[d.delay.category] }}
+                      />
+                      {CATEGORY_LABEL[d.delay.category]}
+                    </td>
+                    <td className="px-4 py-2 font-medium">{d.delay.reason}</td>
+                    <td className="px-4 py-2">{d.rigName ?? "Site"}</td>
+                    <td className="px-4 py-2">{d.pileRef ?? "—"}</td>
+                    <td className="px-4 py-2">{clockTime(d.delay.startedAt)}</td>
+                    <td className="px-4 py-2">
+                      {d.open ? (
+                        <span className="font-medium text-amber-700">ongoing</span>
+                      ) : (
+                        clockTime(d.delay.endedAt)
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {formatHours(d.minutes)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-slate-200 bg-slate-50 font-semibold">
+                  <td className="px-4 py-2" colSpan={6}>
+                    Total lost
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {formatHours(lostMinutes)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </section>
 
       <div className="no-print">
         <DailyReportForm

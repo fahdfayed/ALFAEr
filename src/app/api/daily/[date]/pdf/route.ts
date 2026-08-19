@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSite } from "@/lib/site";
 import { getPileRowsForDate, totalise } from "@/lib/queries";
+import { getDelayRows } from "@/lib/delayQueries";
 import { dailyReportPdf } from "@/lib/pdf/dailyReport";
 
 export const runtime = "nodejs";
@@ -27,14 +28,22 @@ export async function GET(
     redPct: site.overbreakRedPct,
   };
 
-  const [rows, report] = await Promise.all([
+  const [rows, report, delays] = await Promise.all([
     getPileRowsForDate(site.id, thresholds, reportDate),
     prisma.dailyReport.findUnique({
       where: { siteId_reportDate: { siteId: site.id, reportDate } },
     }),
+    getDelayRows(site.id, { workDate: reportDate }),
   ]);
 
-  const pdf = await dailyReportPdf(site, reportDate, rows, totalise(rows), report);
+  const pdf = await dailyReportPdf(
+    site,
+    reportDate,
+    rows,
+    totalise(rows),
+    report,
+    delays,
+  );
   const filename = `DPR_${site.name.replace(/[^\w.-]+/g, "-")}_${date}.pdf`;
 
   return new NextResponse(new Uint8Array(pdf), {

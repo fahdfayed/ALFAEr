@@ -37,6 +37,7 @@ export default async function SettingsPage() {
           clientName: s(site.clientName),
           contractRef: s(site.contractRef),
           location: s(site.location),
+          shiftHours: s(site.shiftHours),
           overbreakAmberPct: s(site.overbreakAmberPct),
           overbreakRedPct: s(site.overbreakRedPct),
           concreteRatePerM3: s(site.concreteRatePerM3),
